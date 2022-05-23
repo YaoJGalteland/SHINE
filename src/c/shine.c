@@ -206,7 +206,6 @@ char* rand_string_alloc(size_t size)
      if (s) {
          rand_string(s, size);
      }
-     free(s);
      return s;
 }
 
