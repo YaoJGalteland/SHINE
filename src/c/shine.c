@@ -109,6 +109,7 @@ int shine(big pk)
 /*  Encode ptr to m */
     mip->IOBASE=128;
     cinstr(m,ptr); 
+    free(ptr);
 
 /*  Map m to an elliptic curve point ek */
     mip->IOBASE=10;      
@@ -201,11 +202,11 @@ static char *rand_string(char *str, size_t size)
 char* rand_string_alloc(size_t size)
 {
      char *s = malloc(size + 1);
-     free(s);
      srand(time(0)); 
      if (s) {
          rand_string(s, size);
      }
+     free(s);
      return s;
 }
 
