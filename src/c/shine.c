@@ -4,9 +4,26 @@
 #include <string.h>
 #include <stdlib.h>
 
-int shine(big pk);
+struct data{
+    unsigned long personalNumber;
+    unsigned int len;
+    int ik;
+    char ciphertext[100];
+}dt;
+struct key{
+    big encryptionKey;
+    big decryptionKey;
+};
+
+unsigned int recsize = sizeof(struct data);
+
+void option();
+void read();
+void keygen(miracl *mip);
+void update(miracl *mip);
+void enc(miracl *mip);
+void dec(miracl *mip);
 static char *rand_string(char *str, size_t size);
-char* rand_string_alloc(size_t size);
 
 /* Use secp256k1 elliptic curve: y^2=x^3 + 7 */
 
@@ -27,167 +44,345 @@ char *ecy="483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8";
 
 char *ecn="FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
 
-/* Data to be encrypted */
-char dest[32] = "SHINE!"; 
+int rand_len = 16;
+int ptx_len = 32;
 
 int main()
 {
-    big pk;
+    unsigned int choice;
+    epoint *g,*ea,*eb;
+    big a,b,p,q,x,y;
+    time_t seed;
     miracl *mip;
 
-    /* Repeat until a valid ciphertext is generated */ 
-    do {} while (shine(pk)==0);    
+    #ifndef MR_NOFULLWIDTH   
+        mip=mirsys(36,0);
+    #else
+        mip=mirsys(36,MAXBASE);
+    #endif
+    
+    printf("\n********** UPDATABLE ENCRYPTION (SHINE): **********\n");
 
+    while(1)
+    {
+        a=mirvar(0);
+        b=mirvar(0);
+        p=mirvar(0);
+        q=mirvar(0);
+        x=mirvar(0);
+        y=mirvar(0);
+        
+    
+        convert(0,a);
+        mip->IOBASE=16;
+        cinstr(b,ecb);
+        cinstr(p,ecp);      
+        ecurve_init(a,b,p,MR_BEST);  /* Use PROJECTIVE if possible, else AFFINE coordinates */
+    
+        g=epoint_init();
+        cinstr(x,ecx);
+        cinstr(y,ecy);
+        mip->IOBASE=10;
+        epoint_set(x,y,0,g);
+        ea=epoint_init();
+        eb=epoint_init();
+        epoint_copy(g,ea);
+        epoint_copy(g,eb);
+
+        time(&seed);
+        irand((unsigned long)seed); 
+
+        option();
+        printf("ENTER  YOUR CHOICE\n");
+        scanf("%u",&choice);
+        switch(choice)
+        {
+            case 1:
+                    keygen(mip);  /*  Key generation algorithm. Generate an initial epoch key */
+                    break;
+            case 2:
+                    enc(mip);  /*  Encryption algorithm. Compute a ciphertext */                      
+                    break;
+            case 3:
+                    dec(mip);  /*  Decryption algorithm. Compute the plaintext */                    
+                    break;
+            case 4:
+                    /*  Token generation and update algorithm. Generate a new epoch key k and update all ciphertexts */
+                    update(mip);
+                    break;      
+            
+            case 5:
+                    read();
+                    break;
+            case 6:
+                    remove("HealthData");
+                    remove("KeyMaterial");    
+                    break;      
+            
+            case 0:  
+                    exit(0);
+            }
+    }
     return 0;
 }
 
-
-int shine(big pk)
+void option()
 {
-    int ik,n;
-    int rand_len = 16;
-    int ptx_len = 32;
-    time_t seed;
-    epoint *g,*ek,*ea,*eb;
-    big nn,yd,z,a,b,m,p,q,x,y,k,k2,inv,inv2,t,r;
-    miracl *mip;
-    char *ptr;
-    char c[100];
-    char cc[100];
-#ifndef MR_NOFULLWIDTH   
-    mip=mirsys(36,0);
-#else
-    mip=mirsys(36,MAXBASE);
-#endif
-    a=mirvar(0);
-    b=mirvar(0);
-    p=mirvar(0);
-    q=mirvar(0);
-    pk=mirvar(0);  
-    m=mirvar(0);   
-    x=mirvar(0);
-    y=mirvar(0);
-    k=mirvar(0);
-    k2=mirvar(0);
-    inv=mirvar(0);
-    inv2=mirvar(0);
-    t=mirvar(0);
-    nn=mirvar(0);
+        printf("\nENTER YOUR FOLLOWING CHOICE\n");
+        printf("1 ==> KEY GENERATION\n");
+        printf("2 ==> ENCRYPTION\n");
+        printf("3 ==> DECRYPTION\n");
+        printf("4 ==> UPDATE\n");
+        printf("5 ==> READ\n");
+        printf("6 ==> DELETE FILE\n");
+        printf("0 ==> EXIT\n");
+}
+
+void keygen(miracl *mip)
+{
+    FILE *fk; 
+    struct key k;
+    k.encryptionKey=mirvar(0);
+    k.decryptionKey=mirvar(0);
+    big yd,z,nn;
+
     yd=mirvar(0);
     z=mirvar(0);
-    r=mirvar(0); 
- 
-    time(&seed);
-    irand((unsigned long)seed);   /* change parameter for different values */
-    convert(0,r);
-
-    convert(0,a);
+    nn=mirvar(0);
     mip->IOBASE=16;
-    cinstr(b,ecb);
-    cinstr(p,ecp);      
-    ecurve_init(a,b,p,MR_BEST);  /* Use PROJECTIVE if possible, else AFFINE coordinates */
-
-    g=epoint_init();
-    cinstr(x,ecx);
-    cinstr(y,ecy);
     cinstr(nn,ecn);
     mip->IOBASE=10;
-    epoint_set(x,y,0,g);
-    ek=epoint_init();
-    ea=epoint_init();
-    eb=epoint_init();
-    epoint_copy(g,ea);
-    epoint_copy(g,eb);
-
-/* Padding random bytes to data, get ptr */
-    ptr = (char*)malloc(ptx_len);
-    strcpy(ptr, dest);
-	strcat(ptr, rand_string_alloc(rand_len));
-    n = strlen(ptr)-rand_len;
     
+    fk = fopen("KeyMaterial","a+");
 
-/*  Encode ptr to m */
-    mip->IOBASE=128;
-    cinstr(m,ptr); 
-    free(ptr);
-
-/*  Map m to an elliptic curve point ek */
-    mip->IOBASE=10;      
-    epoint_set(m,m,0,ek);
-
-/*  Key generation algorithm. Generate an epoch key k */
     do 
     {
-    bigbits(160,k);
-    } while (egcd(k,nn,z)!=1); 
-    xgcd(k,nn,inv,yd,z);
+    bigbits(160,k.encryptionKey);
+    } while(egcd(k.encryptionKey,nn,z)!=1); 
+    xgcd(k.encryptionKey,nn,k.decryptionKey,yd,z);
+   
+    cotnum(k.encryptionKey,fk);  // write the initial keys into fk
+    cotnum(k.decryptionKey,fk);
+    fclose(fk);
+}
 
-/*  Encryption algorithm. Compute a ciphertext */       
-    mip->IOBASE=10;      
-    epoint_set(m,m,0,ek);
-    ecurve_mult(k,ek,ek);
-    ik=epoint_get(ek,pk,pk);
+void update(miracl *mip)
+{
+    epoint *ep = epoint_init();
+    FILE *fk,*fp;
+    struct key k0,k1;
+    k0.encryptionKey=mirvar(0);
+    k0.decryptionKey=mirvar(0);
+    k1.encryptionKey=mirvar(0);
+    k1.decryptionKey=mirvar(0);
+    char buff_encryptionKey[255], buff_decryptionKey[255];
 
-    if (fcomp(r,pk)!=0) 
-    {
-        printf("\nCiphertext= \n");
-        cotnum(pk,stdout);
-    }
+    big r,ct,t,nn;
+    r=mirvar(0);
+    ct=mirvar(0);
+    t=mirvar(0);
+    mip->IOBASE=16;
+    nn=mirvar(0);
+    cinstr(nn,ecn);
+
+    keygen(mip); // write new key into fk
     
-/*  Decryption algorithm. Compute the plaintext */
-    epoint_set(pk,pk,ik,ek); /* decompress es */  
-    ecurve_mult(inv,ek,ek);
-    epoint_get(ek,m,m);
-    if (fcomp(r,pk)!=0) 
-    {
-        printf("Plaintext= \n");
-        mip->IOBASE=128;
-        cotstr(m,c);
-        printf("%.*s\n",n,c);
-    }
-
-/*  Key generation algorithm. Generate a new epoch key k2 */
-    do 
-    {
-    bigbits(160,k2);
-    } while (egcd(k2,nn,z)!=1); 
-    xgcd(k2,nn,inv2,yd,z);
-
-/*  Token Generation algorithm. Compute the update token t */
-    multiply(k2,inv,t);
+    /* put the new key k1 into the file "KeyMaterial", delete the old key k0 */
+    fk = fopen("KeyMaterial","a+");
+    FILE *fk_temp = fopen("KeyMaterial_temp","w");
+    int count = 0;
     
-/*  Update algorithm. Compute the updated ciphertext */
-    mip->IOBASE=10;  
-    epoint_set(pk,pk,ik,ek); /* decompress es */  
-    ecurve_mult(t,ek,ek);
-    ik=epoint_get(ek,pk,pk);
-
-    if (fcomp(r,pk)!=0) 
+    rewind(fk);
+    for(count=0;count<=1;count++)
     {
-        printf("\nUpdated ciphertext= \n");
-        cotnum(pk,stdout);
+        fgets(buff_encryptionKey, 255, (FILE*)fk); // read fk and store a line into buff_encryptionKey    
+        fgets(buff_decryptionKey, 255, (FILE*)fk); 
+        if(count)
+        {
+            cinstr(k1.encryptionKey,buff_encryptionKey); 
+            cinstr(k1.decryptionKey,buff_decryptionKey); 
+            cotnum(k1.encryptionKey,fk_temp);  // write the new key into fk_temp, fk_temp only has the new key
+            cotnum(k1.decryptionKey,fk_temp);  
+        }
+        else
+        {
+            cinstr(k0.encryptionKey,buff_encryptionKey); 
+            cinstr(k0.decryptionKey,buff_decryptionKey); 
+        }      
     }
 
-/*  Compute the plaintext wrt the update ciphertext */
-    epoint_set(pk,pk,ik,ek); /* decompress es */  
-    ecurve_mult(inv2,ek,ek);
-    epoint_get(ek,m,m);
-    if (fcomp(r,pk)!=0) 
-    {
-        printf("Plaintext wrt the update ciphertext= \n");
-        mip->IOBASE=128;
-        cotstr(m,c);
-        printf("%.*s\n",n,c);
+    /* Close all open files */
+    fclose(fk);
+    fclose(fk_temp);
+    
+    /* Delete the original file and rename the temperary file as the original file */
+    remove("KeyMaterial");
+    rename("KeyMaterial_temp","KeyMaterial");
+
+
+    /*  Token Generation algorithm. Compute the update token t */
+    multiply(k1.encryptionKey,k0.decryptionKey,t);
+    fmodulo(t,nn,t);
+
+    /*  Update algorithm. Compute the updated ciphertext, delete old ciphertexts and store updated ciphertexts */
+    fp = fopen("HealthData","r+");
+    FILE *fp_temp = fopen("HealthData_temp","w");
+    rewind(fp); 
+    mip->IOBASE=10; 
+    while(fread(&dt,recsize,1,fp))
+    {   
+        bytes_to_big(32,dt.ciphertext,ct);
+        do
+        {
+            epoint_set(ct,ct,dt.ik,ep); 
+            ecurve_mult(t,ep,ep);
+            dt.ik=epoint_get(ep,ct,ct);
+               
+        }while (fcomp(r,ct)==0||big_to_bytes(32,ct,dt.ciphertext,FALSE)!=32);
+        fwrite(&dt,recsize,1,fp_temp);
     }
 
-    return fcomp(r,pk);
+    /* Close all open files */
+    fclose(fp);
+    fclose(fp_temp);
+    
+    /* Delete the original file and rename the temperary file as the original file */
+    remove("HealthData");
+    rename("HealthData_temp","HealthData");
 }
 
 
+/*  Encryption algorithm. Compute a ciphertext */  
+void enc(miracl *mip)
+{   
+    epoint *ep = epoint_init();
+    FILE *fk = fopen("KeyMaterial","r+");
+    FILE *fp = fopen("HealthData","a+");
+    struct key k;
+    k.encryptionKey=mirvar(0);
+    k.decryptionKey=mirvar(0);
+    char buff_encryptionKey[255], buff_decryptionKey[255];
+
+    char msg[20]; 
+    char s[20];
+    char *ptr;
+    big m,r,ct;
+    m=mirvar(0); 
+    r=mirvar(0);  
+    ct=mirvar(0);
+
+    rewind(fk);
+    fgets(buff_encryptionKey, 255, (FILE*)fk); // read encryptionKey from fk      
+    fgets(buff_decryptionKey, 255, (FILE*)fk); // read decryptionKey from fk  
+    
+    mip->IOBASE=10;  
+    cinstr(k.encryptionKey,buff_encryptionKey); 
+    cinstr(k.decryptionKey,buff_decryptionKey); 
+
+    
+    fseek(fp,0,SEEK_END);   
+    printf("\nENTER PERSONAL NUMBER\n");
+    scanf("%lu", &dt.personalNumber);
+    
+    printf("ENTER YOUR MESSAGE (LESS THAN 16 BYTES)\n");
+    scanf("%s",msg);
+    do
+    {
+    /* Padding random bytes to data, get ptr */
+        ptr = (char*)malloc(ptx_len);
+        strcpy(ptr, msg);
+        strcat(ptr, rand_string(s,rand_len));
+        dt.len = strlen(ptr)+1-rand_len;
+
+    /*  Encode ptr to m */
+        mip->IOBASE=128;
+        cinstr(m,ptr); 
+        free(ptr);       
+
+    /*  Encryption algorithm. Compute a ciphertext */                 
+        epoint_set(m,m,0,ep);     /*  Map m to an elliptic curve point ep */          
+        ecurve_mult(k.encryptionKey,ep,ep);
+        dt.ik=epoint_get(ep,ct,ct);
+    } while (fcomp(r,ct)==0||big_to_bytes(32,ct,dt.ciphertext,FALSE)!=32);
+
+    fwrite(&dt,recsize,1,fp);
+    fclose(fk);
+    fclose(fp);
+}
+
+
+void dec(miracl *mip)
+{
+    epoint *ep = epoint_init();
+    FILE *fk = fopen("KeyMaterial","r+");
+    FILE *fp = fopen("HealthData","r+");
+    struct key k;
+    k.encryptionKey=mirvar(0);
+    k.decryptionKey=mirvar(0);
+    char buff_encryptionKey[255], buff_decryptionKey[255];
+
+    big m,r,ct;
+    char c[100];
+    m=mirvar(0); 
+    r=mirvar(0);  
+    ct=mirvar(0); 
+    unsigned long temp;
+    int check = 0;
+
+    rewind(fk);
+    fgets(buff_encryptionKey, 255, (FILE*)fk); // read encryptionKey from fk      
+    fgets(buff_decryptionKey, 255, (FILE*)fk); // read decryptionKey from fk  
+    cinstr(k.encryptionKey,buff_encryptionKey); 
+    cinstr(k.decryptionKey,buff_decryptionKey); 
+
+    rewind(fp);  
+    
+    printf("ENTER PERSONAL NUMBER\n");
+    scanf("%lu", &temp); 
+    
+    mip->IOBASE=10; 
+    while(fread(&dt,recsize,1,fp)==1)
+    {
+        if(dt.personalNumber==temp)
+        {
+            bytes_to_big(32,dt.ciphertext,ct);
+            check = 1;
+            do
+            {
+                epoint_set(ct,ct,dt.ik,ep); 
+                ecurve_mult(k.decryptionKey,ep,ep);
+                epoint_get(ep,m,m);
+            }while (fcomp(r,ct)==0);
+            
+            printf("Plaintext= \n");
+            mip->IOBASE=128; 
+            cotstr(m,c);            
+            printf("%.*s\n",dt.len,c);            
+        }
+    }
+
+    if(check !=1) 
+    printf("CANNOT FIND THE RECORD\n");
+    fclose(fk);
+    fclose(fp);
+}
+
+void read()
+{
+    FILE *fp = fopen("HealthData","r+");
+    
+    rewind(fp); 
+    while(fread(&dt,recsize,1,fp)==1)
+    {printf("Personal number: %lu, ciphertext: %s\n", dt.personalNumber,dt.ciphertext);   
+    }
+    fclose(fp);       
+}
+
+    
 static char *rand_string(char *str, size_t size)
 {
-    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJK...";
-    srand(time(0)); 
+    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,.-#'?!";
+    //srand(time(0)); 
     if (size) {
         --size;
         for (size_t n = 0; n < size; n++) {
@@ -198,14 +393,3 @@ static char *rand_string(char *str, size_t size)
     }
     return str;
 }
-
-char* rand_string_alloc(size_t size)
-{
-     char *s = malloc(size + 1);
-     srand(time(0)); 
-     if (s) {
-         rand_string(s, size);
-     }
-     return s;
-}
-
