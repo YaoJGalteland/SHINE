@@ -23,7 +23,7 @@ void keygen(miracl *mip);
 void update(miracl *mip);
 void enc(miracl *mip);
 void dec(miracl *mip);
-static char *rand_string(char *str, size_t size);
+void rand_string(size_t size, char* str);
 
 /* Use secp256k1 elliptic curve: y^2=x^3 + 7 */
 
@@ -264,8 +264,7 @@ void enc(miracl *mip)
     char buff_encryptionKey[255], buff_decryptionKey[255];
 
     char msg[20]; 
-    char s[20];
-    char *ptr;
+    char *ptr, *s;
     big m,r,ct;
     m=mirvar(0); 
     r=mirvar(0);  
@@ -290,9 +289,12 @@ void enc(miracl *mip)
     {
     /* Padding random bytes to data, get ptr */
         ptr = (char*)malloc(ptx_len);
+        s = (char*)malloc(rand_len + 1);
         strcpy(ptr, msg);
-        strcat(ptr, rand_string(s,rand_len));
+        rand_string(rand_len,s);
+        strcat(ptr, s);
         dt.len = strlen(ptr)+1-rand_len;
+        free(s);
 
     /*  Encode ptr to m */
         mip->IOBASE=128;
@@ -379,17 +381,21 @@ void read()
 }
 
     
-static char *rand_string(char *str, size_t size)
+void rand_string(size_t size, char* str)
 {
-    const char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789,.-#'?!";
-    //srand(time(0)); 
-    if (size) {
-        --size;
-        for (size_t n = 0; n < size; n++) {
-            int key = rand() % (int) (sizeof charset - 1);
-            str[n] = charset[key];
+    const char charset[] = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    srand(time(0)); 
+    
+    if(str)
+    {
+        if (size) 
+        {
+            --size;
+            for (size_t n = 0; n < size; n++) {
+                int key = rand() % (int) (sizeof charset - 1);
+                str[n] = charset[key];
+            }
+            str[size] = '\0';
         }
-        str[size] = '\0';
-    }
-    return str;
+    }   
 }
